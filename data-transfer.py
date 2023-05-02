@@ -43,5 +43,7 @@ for cube in root.iter("Cube"):
                 }
             ]
             client.write_points(json_body)
-
+result = client.query('SHOW MEASUREMENTS')
+easurements = [m['name'] for m in result.get_points()]
+print(measurements)
 print("Data sent to InfluxDB successfully!")
