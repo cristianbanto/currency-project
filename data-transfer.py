@@ -1,50 +1,47 @@
 import requests
-from influxdb import InfluxDBClient
 import xml.etree.ElementTree as ET
-import datetime
-import pandas as pd
+from datetime import datetime
+from influxdb import InfluxDBClient
 
-# Define the endpoint URL to fetch the XML data
-url = 'https://www.bnr.ro/nbrfxrates.xml'
+# InfluxDB credentials
+INFLUXDB_HOST = "3.87.199.82"
+INFLUXDB_PORT = 8086
+INFLUXDB_USERNAME = "admin"
+INFLUXDB_PASSWORD = "password"
+INFLUXDB_DATABASE = "currency_rates"
 
-# Fetch the XML data from the endpoint
-response = requests.get(url)
-xml_data = response.text
+# Get XML data
+response = requests.get("https://www.bnr.ro/nbrfxrates.xml")
+root = ET.fromstring(response.content)
 
-# Parse the XML data
-root = ET.fromstring(xml_data)
-cubes = root.findall('.//Cube')
+# Extract data and send to InfluxDB
+client = InfluxDBClient(host=INFLUXDB_HOST, port=INFLUXDB_PORT, username=INFLUXDB_USERNAME, password=INFLUXDB_PASSWORD, database=INFLUXDB_DATABASE)
 
-# Extract currency rates and dates
-data = []
-for cube in cubes:
-    currency = cube.attrib.get('currency')
-    rate = float(cube.text)
-    date = datetime.datetime.now().strftime('%Y-%m-%d')
-    data.append({'currency': currency, 'rate': rate, 'date': date})
 
-# Convert data to DataFrame
-df = pd.DataFrame(data)
 
-# Connect to the InfluxDB database
-influxdb_host = 'http://3.87.199.82'
-influxdb_port = 8086
-influxdb_database = 'currency_rates'
-influxdb_client = InfluxDBClient(host=influxdb_host, port=influxdb_port)
-influxdb_client.switch_database(influxdb_database)
 
-# Convert DataFrame to InfluxDB Line Protocol format
-data_points = []
-for _, row in df.iterrows():
-    data_points.append({
-        'measurement': 'currency_rate',
-        'tags': {'currency': row['currency']},
-        'time': row['date'],
-        'fields': {'rate': row['rate']}
-    })
 
-# Write data points to InfluxDB
-influxdb_client.write_points(data_points)
+for cube in root.iter("Cube"):
+    if "date" in cube.attrib:
+        # Get date
+        date_str = cube.attrib["date"]
+        date = datetime.strptime(date_str, "%Y-%m-%d")
 
-# Close the InfluxDB connection
-influxdb_client.close()
+        # Insert exchange rates for the date
+        for rate in cube.iter("Rate"):
+            json_body = [
+                {
+                    "measurement": "exchange_rates",
+                    "tags": {
+                        "currency": rate.attrib["currency"]
+                    },
+                    "time": date,
+                    "fields": {
+                        "rate": float(rate.attrib["rate"]),
+                        "currency_name": rate.attrib["currencyname"]
+                    }
+                }
+            ]
+            client.write_points(json_body)
+
+print("Data sent to InfluxDB successfully!")
